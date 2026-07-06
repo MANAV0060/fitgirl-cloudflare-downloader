@@ -1,7 +1,9 @@
 import os
 import re
 import time
+import sys
 import threading
+import webbrowser
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
 
@@ -10,7 +12,17 @@ import primp
 import requests
 from bs4 import BeautifulSoup
 
-app = Flask(__name__, static_folder='web', template_folder='web')
+def get_resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+app = Flask(__name__, 
+            static_folder=get_resource_path('web'), 
+            template_folder=get_resource_path('web'))
 
 # Default save location
 DEFAULT_SAVE_DIR = r"d:\detriot"
@@ -542,6 +554,13 @@ def retry_part():
 
     return jsonify({'success': True})
 
+def open_browser():
+    time.sleep(1.5)
+    try:
+        webbrowser.open("http://127.0.0.1:5000")
+    except Exception as e:
+        print("Failed to auto-open browser:", e)
+
 if __name__ == '__main__':
     os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
     
@@ -550,4 +569,7 @@ if __name__ == '__main__':
         manager.links = saved
         manager.parts = manager.get_parts_from_links(saved)
         
+    # Start auto-open browser thread
+    threading.Thread(target=open_browser, daemon=True).start()
+    
     app.run(host='0.0.0.0', port=5000, debug=False)

@@ -5,3 +5,5 @@ Fitgirl-Easy-Downloader/
 __pycache__/
 .vscode/
 .idea/
+build/
+*.spec
