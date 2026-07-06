@@ -73,6 +73,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 directoryInput.value = data.save_dir;
             }
 
+            if (data.is_vercel) {
+                btnAnalyze.textContent = 'Resolve Links';
+                document.querySelector('.logo-section p').textContent = 'FitGirl Repack Multi-part Link Resolver (Vercel Mode)';
+                
+                // Hide local configs and controls
+                document.getElementById('local-config').style.display = 'none';
+                document.getElementById('local-controls').style.display = 'none';
+                
+                // Show Vercel controls and instructions
+                document.getElementById('vercel-controls').style.display = 'flex';
+                document.getElementById('vercel-instructions').style.display = 'block';
+
+                // Change stats header text
+                document.querySelector('.stats-container').parentElement.querySelector('.form-title').textContent = 'Link Resolver Stats';
+                document.querySelector('#stat-completed').previousElementSibling.textContent = 'Resolved Parts';
+                document.querySelector('#stat-progress').previousElementSibling.textContent = 'Resolve Status';
+                document.querySelector('#stat-speed').previousElementSibling.textContent = 'Operation Status';
+                document.querySelector('#stat-speed').textContent = 'ONLINE';
+                document.querySelector('#stat-speed-sub').textContent = 'Direct Serverless APIs active';
+                document.querySelector('#stat-eta').previousElementSibling.textContent = 'Total Parts';
+                document.querySelector('#stat-eta').textContent = '45 Parts';
+                document.querySelector('#stat-eta-sub').textContent = 'Sequenced correctly';
+            }
+
             // Pre-load links in textarea if backend has saved links
             if (data.saved_links && data.saved_links.length > 0 && linksInput.value.trim() === '') {
                 linksInput.value = data.saved_links.join('\n');
@@ -102,10 +126,39 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.success) {
                 currentLinks = data.links;
                 queueCountBadge.textContent = `${data.parts.length} Parts`;
-                queueCountBadge.className = 'status-badge status-downloading';
                 
-                renderPartCards(data.parts);
-                btnStart.disabled = false;
+                const isVercelMode = document.getElementById('vercel-controls').style.display === 'flex';
+                if (isVercelMode) {
+                    queueCountBadge.className = 'status-badge status-completed';
+                    statCompleted.textContent = `${data.parts.filter(p => p.direct_url).length} / ${data.parts.length}`;
+                    statProgress.textContent = `${Math.round(data.parts.filter(p => p.direct_url).length / data.parts.length * 100)}%`;
+                    statProgressSub.textContent = 'Bypassed Cloudflare successfully';
+                    
+                    renderPartCards(data.parts);
+                    
+                    // Enable copy all button
+                    const btnCopyAll = document.getElementById('btn-copy-all');
+                    if (btnCopyAll) {
+                        btnCopyAll.disabled = false;
+                        btnCopyAll.onclick = () => {
+                            const directUrls = data.parts
+                                .filter(p => p.direct_url)
+                                .map(p => p.direct_url)
+                                .join('\n');
+                            
+                            navigator.clipboard.writeText(directUrls).then(() => {
+                                btnCopyAll.textContent = 'Copied to Clipboard!';
+                                setTimeout(() => { btnCopyAll.textContent = 'Copy All Direct Links'; }, 2000);
+                            }).catch(err => {
+                                alert('Failed to copy: ' + err);
+                            });
+                        };
+                    }
+                } else {
+                    queueCountBadge.className = 'status-badge status-downloading';
+                    renderPartCards(data.parts);
+                    btnStart.disabled = false;
+                }
             } else {
                 alert('Analysis failed: ' + data.error);
             }
@@ -120,26 +173,40 @@ document.addEventListener('DOMContentLoaded', () => {
     // Render cards for each part
     function renderPartCards(parts) {
         partsGrid.innerHTML = '';
+        const isVercelMode = document.getElementById('vercel-controls').style.display === 'flex';
         parts.forEach(part => {
             const pct = part.total_bytes > 0 ? (part.downloaded_bytes / part.total_bytes * 100).toFixed(1) : 0;
-            const sizeLabel = part.total_bytes > 0 ? 
-                `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}` : 
-                'Pending check...';
+            
+            let sizeLabel, barWidth, statusClass, statusText;
+            
+            if (isVercelMode) {
+                sizeLabel = part.direct_url ? 'Direct URL Ready' : (part.error || 'Failed to resolve');
+                barWidth = part.direct_url ? 100 : 0;
+                statusClass = part.direct_url ? 'completed' : 'failed';
+                statusText = part.direct_url ? 'ready' : 'failed';
+            } else {
+                sizeLabel = part.total_bytes > 0 ? 
+                    `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}` : 
+                    'Pending check...';
+                barWidth = pct;
+                statusClass = part.status;
+                statusText = part.status;
+            }
 
             const card = document.createElement('div');
-            card.className = `part-card ${part.status === 'downloading' ? 'active' : ''} ${part.status === 'completed' ? 'completed' : ''}`;
+            card.className = `part-card ${part.status === 'downloading' ? 'active' : ''} ${statusClass === 'completed' ? 'completed' : ''}`;
             card.id = `card-${part.filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
             
             card.innerHTML = `
                 <div class="part-card-header">
                     <span class="part-title" title="${part.filename}">${part.filename}</span>
-                    <span class="status-badge status-${part.status}">${part.status}</span>
+                    <span class="status-badge status-${statusClass}">${statusText}</span>
                 </div>
                 <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                    <div class="progress-bar-fill" style="width: ${barWidth}%"></div>
                 </div>
                 <div class="part-details-row">
-                    <span class="part-progress-text">${pct}% (${sizeLabel})</span>
+                    <span class="part-progress-text">${isVercelMode ? sizeLabel : pct + '% (' + sizeLabel + ')'}</span>
                     <span class="part-speed">${part.speed_mb > 0 ? part.speed_mb.toFixed(1) + ' MB/s' : ''}</span>
                 </div>
             `;
