@@ -30,7 +30,7 @@
                     <textarea id="links-input" placeholder="Paste FuckingFast links here (one per line)...&#10;For example:&#10;https://fuckingfast.co/vw1odhm5aiyn#Detroit_Become_Human_--_fitgirl-repacks.site_--_.part01.rar"></textarea>
                 </div>
 
-                <div class="controls-row" id="local-config">
+                <div class="controls-row">
                     <div class="input-group">
                         <label class="input-label" for="threads-input">Concurrent Downloads</label>
                         <input class="input-field" type="number" id="threads-input" min="1" max="10" value="3">
@@ -47,30 +47,13 @@
                     </button>
                 </div>
 
-                <div class="controls-row" style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 1.5rem; gap: 1rem;" id="local-controls">
+                <div class="controls-row" style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 1.5rem; gap: 1rem;">
                     <button class="btn btn-primary" id="btn-start" style="flex: 1;" disabled>
                         Start Download
                     </button>
                     <button class="btn btn-danger" id="btn-stop" style="flex: 1;" disabled>
                         Stop Download
                     </button>
-                </div>
-
-                <div class="controls-row" style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 1.5rem; display: none;" id="vercel-controls">
-                    <button class="btn btn-primary" id="btn-copy-all" style="flex: 1;" disabled>
-                        Copy All Direct Links
-                    </button>
-                </div>
-
-                <div class="glass-panel" style="margin-top: 1rem; padding: 1rem; background: rgba(139, 92, 246, 0.05); display: none;" id="vercel-instructions">
-                    <h3 style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--accent-violet);">IDM Import Instructions:</h3>
-                    <ol style="font-size: 0.75rem; color: var(--text-secondary); padding-left: 1.2rem; line-height: 1.4;">
-                        <li>Click <b>Resolve Links</b> above to fetch direct addresses.</li>
-                        <li>Click <b>Copy All Direct Links</b> to save them to your clipboard.</li>
-                        <li>Open Internet Download Manager (IDM) on your PC.</li>
-                        <li>Go to <b>Tasks</b> ➔ <b>Add batch download from clipboard</b>.</li>
-                        <li>Select the items and click <b>OK</b> to start downloading!</li>
-                    </ol>
                 </div>
             </div>
 
