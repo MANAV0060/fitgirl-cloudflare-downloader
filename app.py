@@ -312,13 +312,15 @@ def search_fitgirl_links(query):
             soup = BeautifulSoup(r.text, 'html.parser')
             first_article = soup.find('article')
             if first_article:
-                first_link = first_article.find('a', href=True)
-                if first_link:
-                    target_url = first_link['href']
-                    print(f"Found post URL from search: {target_url}")
-                    r_target = primp.get(target_url, headers=headers, timeout=15)
-                    if r_target.status_code == 200:
-                        return r_target.text
+                title_el = first_article.find(class_='entry-title')
+                if title_el:
+                    first_link = title_el.find('a', href=True)
+                    if first_link:
+                        target_url = first_link['href']
+                        print(f"Found post URL from search: {target_url}")
+                        r_target = primp.get(target_url, headers=headers, timeout=15)
+                        if r_target.status_code == 200:
+                            return r_target.text
     except Exception as e:
         print("FitGirl search failed:", e)
     return None
