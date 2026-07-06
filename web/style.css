@@ -384,3 +384,27 @@ textarea:focus {
     color: var(--accent-emerald);
     font-weight: 500;
 }
+
+.btn-retry-card {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    display: inline-flex;
+    align-items: center;
+}
+.btn-retry-card:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+}
+.btn-retry-card:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}

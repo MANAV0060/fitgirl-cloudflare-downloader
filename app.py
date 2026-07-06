@@ -515,6 +515,33 @@ def stop_downloads():
     manager.stop_downloads()
     return jsonify({'success': True})
 
+@app.route('/api/retry_part', methods=['POST'])
+def retry_part():
+    data = request.json or {}
+    filename = data.get('filename', '')
+    if not filename:
+        return jsonify({'success': False, 'error': 'No filename provided'})
+
+    with manager.lock:
+        part = next((p for p in manager.parts if p['filename'] == filename), None)
+        if not part:
+            return jsonify({'success': False, 'error': 'Part not found'})
+        
+        if part['status'] == 'downloading':
+            return jsonify({'success': False, 'error': 'Part is already downloading'})
+
+        part['status'] = 'pending'
+        part['speed_mb'] = 0.0
+        
+        if manager.status in ['idle', 'stopped', 'completed']:
+            manager.status = 'downloading'
+            manager.cancel_requested = False
+
+    t = threading.Thread(target=manager._download_worker, args=(part,), daemon=True)
+    t.start()
+
+    return jsonify({'success': True})
+
 if __name__ == '__main__':
     os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
     

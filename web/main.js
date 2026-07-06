@@ -133,7 +133,10 @@ document.addEventListener('DOMContentLoaded', () => {
             card.innerHTML = `
                 <div class="part-card-header">
                     <span class="part-title" title="${part.filename}">${part.filename}</span>
-                    <span class="status-badge status-${part.status}">${part.status}</span>
+                    <div class="part-header-actions" style="display: flex; align-items: center; gap: 8px;">
+                        <button class="btn-retry-card" data-filename="${part.filename}" style="display: ${part.status === 'failed' ? 'inline-flex' : 'none'};">Retry</button>
+                        <span class="status-badge status-${part.status}">${part.status}</span>
+                    </div>
                 </div>
                 <div class="progress-bar-container">
                     <div class="progress-bar-fill" style="width: ${pct}%"></div>
@@ -252,6 +255,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     badge.textContent = part.status;
                     badge.className = `status-badge status-${part.status}`;
 
+                    // Update retry button visibility
+                    const retryBtn = card.querySelector('.btn-retry-card');
+                    if (retryBtn) {
+                        retryBtn.style.display = part.status === 'failed' ? 'inline-flex' : 'none';
+                    }
+
                     // Update active animations
                     if (part.status === 'downloading') {
                         card.classList.add('active');
@@ -285,6 +294,60 @@ document.addEventListener('DOMContentLoaded', () => {
     btnAnalyze.addEventListener('click', analyzeLinks);
     btnStart.addEventListener('click', startDownload);
     btnStop.addEventListener('click', stopDownload);
+
+    partsGrid.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('btn-retry-card')) {
+            const filename = e.target.getAttribute('data-filename');
+            e.target.disabled = true;
+            const originalText = e.target.textContent;
+            e.target.textContent = 'Retrying...';
+            try {
+                const res = await fetch('/api/retry_part', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Reset UI card state to downloading/pending immediately
+                    const cardId = `card-${filename.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                    const card = document.getElementById(cardId);
+                    if (card) {
+                        card.classList.add('active');
+                        card.classList.remove('completed');
+                        const badge = card.querySelector('.status-badge');
+                        if (badge) {
+                            badge.textContent = 'pending';
+                            badge.className = 'status-badge status-pending';
+                        }
+                        e.target.style.display = 'none';
+                    }
+                    
+                    // Start polling
+                    const statusRes = await fetch('/api/status');
+                    const statusData = await statusRes.json();
+                    if (statusData.status === 'downloading') {
+                        btnStart.disabled = true;
+                        btnStop.disabled = false;
+                        btnAnalyze.disabled = true;
+                        linksInput.disabled = true;
+                        threadsInput.disabled = true;
+                        pulseIndicator.classList.add('active');
+                        headerStatusText.textContent = 'Status: Downloading...';
+                        startPolling();
+                    }
+                } else {
+                    alert('Failed to retry: ' + data.error);
+                    e.target.disabled = false;
+                    e.target.textContent = originalText;
+                }
+            } catch (err) {
+                console.error('Error retrying:', err);
+                e.target.disabled = false;
+                e.target.textContent = originalText;
+            }
+        }
+    });
 
     // Run status check on load
     checkStatus();
