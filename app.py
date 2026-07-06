@@ -69,7 +69,6 @@ class DownloadManager:
                 status = 'completed'
             elif os.path.exists(tmp_path):
                 downloaded = os.path.getsize(tmp_path)
-                # We don't know total size until we fetch from server, but show what we have
                 status = 'pending'
 
             parts_list.append({
@@ -99,14 +98,12 @@ class DownloadManager:
         print(f"Starting ThreadPoolExecutor with {self.threads} threads...")
         self.executor = ThreadPoolExecutor(max_workers=self.threads)
         
-        # Submit tasks
         futures = []
         for part in self.parts:
             if part['status'] == 'completed':
                 continue
             futures.append(self.executor.submit(self._download_worker, part))
 
-        # Wait for all tasks to complete
         for fut in futures:
             try:
                 fut.result()
@@ -143,7 +140,6 @@ class DownloadManager:
                 part['status'] = 'downloading'
                 print(f"[{filename}] Attempt {attempt}: Resolving page link...")
                 
-                # Step 1: GET FuckingFast page
                 response = primp.get(url, headers=headers, timeout=20)
                 if response.status_code != 200:
                     raise Exception(f"Failed to get landing page: status {response.status_code}")
@@ -159,7 +155,6 @@ class DownloadManager:
                 
                 go_url = urljoin(response.url, go_path)
 
-                # Step 2: POST to retrieve direct download link
                 post_headers = {
                     'accept': '*/*',
                     'content-type': 'application/x-www-form-urlencoded',
@@ -177,9 +172,6 @@ class DownloadManager:
                 if not download_url:
                     raise Exception("HX-Redirect header missing from POST response")
 
-                # Step 3: Stream download the file using requests (unbuffered stream)
-                # To prevent total connection timeout issues, we use standard requests.get
-                # and do NOT set a total duration limit. We only set a connection/read timeout.
                 final_path = os.path.join(self.save_dir, filename)
                 tmp_path = final_path + ".tmp"
 
@@ -204,7 +196,6 @@ class DownloadManager:
                         part['speed_mb'] = 0.0
                         return
                     elif total_size == 0:
-                        # Assume complete if final file exists and total size couldn't be checked
                         part['status'] = 'completed'
                         part['speed_mb'] = 0.0
                         return
@@ -214,7 +205,6 @@ class DownloadManager:
                 if os.path.exists(tmp_path):
                     current_size = os.path.getsize(tmp_path)
                     if total_size > 0 and current_size >= total_size:
-                        # Temporary file is corrupted or larger than complete file, delete it
                         os.remove(tmp_path)
                         current_size = 0
 
@@ -228,16 +218,13 @@ class DownloadManager:
                     downloaded = current_size
                     print(f"[{filename}] Resuming download from position {current_size} bytes...")
 
-                # Launch download stream with 30s read timeout (resets on every byte block received)
                 part_res = requests.get(download_url, stream=True, headers=download_headers, timeout=30)
                 
-                # Check status: 206 means server accepts the byte range
                 if current_size > 0 and part_res.status_code != 206:
                     print(f"[{filename}] Range request returned status {part_res.status_code}. Starting from scratch.")
                     open_mode = 'wb'
                     downloaded = 0
 
-                # Ensure download target directory exists
                 os.makedirs(self.save_dir, exist_ok=True)
 
                 last_time = time.time()
@@ -251,7 +238,6 @@ class DownloadManager:
                         downloaded += len(chunk)
                         part['downloaded_bytes'] = downloaded
 
-                        # Dynamic speed calculation
                         now = time.time()
                         if now - last_time >= 1.0:
                             elapsed = now - last_time
@@ -267,7 +253,6 @@ class DownloadManager:
                     part['speed_mb'] = 0.0
                     return
 
-                # Successfully completed!
                 if os.path.exists(tmp_path):
                     os.rename(tmp_path, final_path)
                 part['status'] = 'completed'
@@ -281,7 +266,7 @@ class DownloadManager:
                 if attempt == max_retries:
                     part['status'] = 'failed'
                 else:
-                    time.sleep(2)  # Backoff before retry
+                    time.sleep(2)
 
     def stop_downloads(self):
         with self.lock:
@@ -289,6 +274,47 @@ class DownloadManager:
         print("Cancel requested for all active threads...")
 
 manager = DownloadManager()
+
+# Helper functions for scraping
+def get_slug_from_filename(filename):
+    name = re.sub(r'\.part\d+\.rar$', '', filename, flags=re.IGNORECASE)
+    name = re.sub(r'fitgirl-repacks\.site', '', name, flags=re.IGNORECASE)
+    name = name.replace('–', ' ').replace('-', ' ').replace('_', ' ').replace('.', ' ')
+    name = ' '.join(name.split())
+    slug = name.lower().replace(' ', '-')
+    return slug
+
+def search_fitgirl_links(query):
+    # 1. Try slug directly
+    slug = query.lower().replace(' ', '-').replace('_', '-')
+    direct_url = f"https://fitgirl-repacks.site/{slug}/"
+    print(f"Trying direct FitGirl URL: {direct_url}")
+    try:
+        r = primp.get(direct_url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            return r.text
+    except Exception as e:
+        print("Direct slug fetch failed:", e)
+
+    # 2. Search on FitGirl
+    search_url = f"https://fitgirl-repacks.site/?s={query.replace(' ', '+')}"
+    print(f"Searching FitGirl: {search_url}")
+    try:
+        r = primp.get(search_url, headers=headers, timeout=15)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            first_article = soup.find('article')
+            if first_article:
+                first_link = first_article.find('a', href=True)
+                if first_link:
+                    target_url = first_link['href']
+                    print(f"Found post URL from search: {target_url}")
+                    r_target = primp.get(target_url, headers=headers, timeout=15)
+                    if r_target.status_code == 200:
+                        return r_target.text
+    except Exception as e:
+        print("FitGirl search failed:", e)
+    return None
 
 # Routes
 @app.route('/')
@@ -331,7 +357,6 @@ def get_status():
     if overall_total > 0:
         progress_percent = round((overall_downloaded / overall_total) * 100, 1)
 
-    # Calculate ETA in seconds
     eta_seconds = None
     if overall_speed > 0:
         bytes_left = overall_total - overall_downloaded
@@ -359,9 +384,55 @@ def analyze_links():
     directory = data.get('directory', manager.save_dir).strip()
     
     # Parse URLs matching fuckingfast.co
-    pattern = r'https://fuckingfast\.co/[a-zA-Z0-9]+#Detroit_Become_Human_[^\s"\'>]+'
-    links = re.findall(pattern, text)
+    pattern_url = r'https://fuckingfast\.co/[a-zA-Z0-9]+#Detroit_Become_Human_[^\s"\'>]+'
+    links = re.findall(pattern_url, text)
     
+    # If no FuckingFast links, check if there are plain filenames
+    if not links:
+        filename_pattern = r'[a-zA-Z0-9_–\.\-]+?\.part\d+\.rar'
+        filenames = re.findall(filename_pattern, text)
+        if filenames:
+            print(f"Detected plain filenames. Resolving FuckingFast links online...")
+            first_filename = filenames[0]
+            
+            # Extract game name from filename
+            raw_game_name = re.sub(r'[\.–_]+fitgirl-repacks.*', '', first_filename, flags=re.IGNORECASE)
+            raw_game_name = raw_game_name.replace('_', ' ').replace('-', ' ').replace('–', ' ').strip()
+            print(f"Extracted game name query: '{raw_game_name}'")
+            
+            slug = get_slug_from_filename(first_filename)
+            print(f"Extracted slug: '{slug}'")
+
+            # Try loading/searching FitGirl repack page
+            page_html = search_fitgirl_links(slug)
+            if not page_html and raw_game_name:
+                page_html = search_fitgirl_links(raw_game_name)
+
+            if page_html:
+                soup = BeautifulSoup(page_html, 'html.parser')
+                page_links = []
+                for dlinks_div in soup.find_all("div", class_="dlinks"):
+                    for a in dlinks_div.find_all("a", href=True):
+                        href = a["href"]
+                        if href.startswith("https://fuckingfast.co/"):
+                            page_links.append((href, a.get_text()))
+                
+                # Match links to the filenames by checking if part number matches
+                matched_links = []
+                for fname in filenames:
+                    part_match = re.search(r'\.part(\d+)\.rar', fname, flags=re.IGNORECASE)
+                    if part_match:
+                        part_num = part_match.group(1)
+                        # Look for link or inner text matching part number
+                        search_str = f"part{part_num}.rar"
+                        for href, anchor_text in page_links:
+                            if search_str in href.lower() or search_str in anchor_text.lower():
+                                matched_links.append(href)
+                                break
+                
+                links = matched_links
+                print(f"Resolved {len(links)} links online!")
+
     # Decode formatting and remove duplicates preserving order
     seen = set()
     unique_links = []
@@ -373,7 +444,7 @@ def analyze_links():
 
     # Sort links by part number
     def get_part_num(link):
-        match = re.search(r'\.part(\d+)\.rar', link)
+        match = re.search(r'\.part(\d+)\.rar', link, flags=re.IGNORECASE)
         return int(match.group(1)) if match else 999
 
     unique_links.sort(key=get_part_num)
@@ -429,14 +500,11 @@ def stop_downloads():
     return jsonify({'success': True})
 
 if __name__ == '__main__':
-    # Ensure default save directory exists
     os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
     
-    # Initialize links if present on disk
     saved = manager.load_saved_links()
     if saved:
         manager.links = saved
         manager.parts = manager.get_parts_from_links(saved)
         
-    # Start app
     app.run(host='0.0.0.0', port=5000, debug=False)
