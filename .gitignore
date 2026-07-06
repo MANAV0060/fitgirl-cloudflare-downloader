@@ -1,0 +1,7 @@
+*.rar
+*.tmp
+links.txt
+Fitgirl-Easy-Downloader/
+__pycache__/
+.vscode/
+.idea/

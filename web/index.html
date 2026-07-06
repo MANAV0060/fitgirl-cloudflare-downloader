@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detroit: Become Human Downloader Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <h1>Detroit Become Human</h1>
+                <p>FitGirl Repack Multi-part High-Speed Downloader</p>
+            </div>
+            <div class="status-badge-header">
+                <span class="pulse-indicator" id="pulse-indicator"></span>
+                <span id="header-status-text">Status: Idle</span>
+            </div>
+        </header>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Left: Link Paste & Config -->
+            <div class="glass-panel">
+                <h2 class="form-title">Pasted Links & Setup</h2>
+                
+                <div class="textarea-container">
+                    <textarea id="links-input" placeholder="Paste FuckingFast links here (one per line)...&#10;For example:&#10;https://fuckingfast.co/vw1odhm5aiyn#Detroit_Become_Human_--_fitgirl-repacks.site_--_.part01.rar"></textarea>
+                </div>
+
+                <div class="controls-row">
+                    <div class="input-group">
+                        <label class="input-label" for="threads-input">Concurrent Downloads</label>
+                        <input class="input-field" type="number" id="threads-input" min="1" max="10" value="3">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label" for="directory-input">Save Directory</label>
+                        <input class="input-field" type="text" id="directory-input" value="D:\detriot">
+                    </div>
+                </div>
+
+                <div class="controls-row">
+                    <button class="btn btn-primary" id="btn-analyze" style="flex: 1;">
+                        Analyze Links
+                    </button>
+                </div>
+
+                <div class="controls-row" style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 1.5rem; gap: 1rem;">
+                    <button class="btn btn-primary" id="btn-start" style="flex: 1;" disabled>
+                        Start Download
+                    </button>
+                    <button class="btn btn-danger" id="btn-stop" style="flex: 1;" disabled>
+                        Stop Download
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right: Progress Stats -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <h2 class="form-title">Download Status Stats</h2>
+                
+                <div class="stats-container">
+                    <!-- Stat 1: Speed -->
+                    <div class="stat-card">
+                        <span class="stat-label">Total Speed</span>
+                        <span class="stat-value" id="stat-speed">0.0 MB/s</span>
+                        <span class="stat-sub" id="stat-speed-sub">Across active connections</span>
+                    </div>
+
+                    <!-- Stat 2: Progress -->
+                    <div class="stat-card">
+                        <span class="stat-label">Overall Progress</span>
+                        <span class="stat-value" id="stat-progress">0%</span>
+                        <span class="stat-sub" id="stat-progress-sub">0.00 GB of 0.00 GB</span>
+                    </div>
+
+                    <!-- Stat 3: ETA -->
+                    <div class="stat-card">
+                        <span class="stat-label">Estimated Time (ETA)</span>
+                        <span class="stat-value" id="stat-eta">--:--:--</span>
+                        <span class="stat-sub" id="stat-eta-sub">Based on current speed</span>
+                    </div>
+
+                    <!-- Stat 4: Done/Total -->
+                    <div class="stat-card">
+                        <span class="stat-label">Completed Parts</span>
+                        <span class="stat-value" id="stat-completed">0 / 0</span>
+                        <span class="stat-sub" id="stat-completed-sub">Files finished downloading</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress List Area -->
+        <div class="glass-panel progress-list-section">
+            <div class="section-header">
+                <h2 class="section-title">Download Queue & Parts</h2>
+                <div class="status-badge status-pending" id="queue-count-badge">0 Parts</div>
+            </div>
+            
+            <div class="parts-grid" id="parts-grid">
+                <!-- Part cards will be injected dynamically by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/main.js"></script>
+</body>
+</html>
