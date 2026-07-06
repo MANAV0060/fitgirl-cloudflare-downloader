@@ -149,6 +149,13 @@ class DownloadManager:
                 if not download_btn:
                     raise Exception("Download button not found in page DOM")
                 
+                # Check meta title to resolve filename if it was initialized as unknown
+                if filename == "unknown_part.rar":
+                    meta_title = soup.find('meta', attrs={'name': 'title'})
+                    if meta_title and meta_title['content']:
+                        filename = meta_title['content']
+                        part['filename'] = filename
+
                 go_path = download_btn.get('hx-post')
                 if not go_path:
                     raise Exception("hx-post attribute missing in download button")
@@ -383,8 +390,8 @@ def analyze_links():
     text = data.get('text', '')
     directory = data.get('directory', manager.save_dir).strip()
     
-    # Parse URLs matching fuckingfast.co
-    pattern_url = r'https://fuckingfast\.co/[a-zA-Z0-9]+#Detroit_Become_Human_[^\s"\'>]+'
+    # Parse URLs matching fuckingfast.co (universal pattern matching any game name/fragment)
+    pattern_url = r'https://fuckingfast\.co/[a-zA-Z0-9]+(?:#[^\s"\'>]*)?'
     links = re.findall(pattern_url, text)
     
     # If no FuckingFast links, check if there are plain filenames
@@ -423,10 +430,17 @@ def analyze_links():
                     part_match = re.search(r'\.part(\d+)\.rar', fname, flags=re.IGNORECASE)
                     if part_match:
                         part_num = part_match.group(1)
-                        # Look for link or inner text matching part number
-                        search_str = f"part{part_num}.rar"
+                        part_num_int = int(part_num)
+                        
+                        # Match by integer value of part number to handle diff digit lengths (e.g. 7 and 007)
                         for href, anchor_text in page_links:
-                            if search_str in href.lower() or search_str in anchor_text.lower():
+                            href_match = re.search(r'\.part(\d+)\.rar', href, flags=re.IGNORECASE)
+                            anchor_match = re.search(r'\.part(\d+)\.rar', anchor_text, flags=re.IGNORECASE)
+                            
+                            href_num = int(href_match.group(1)) if href_match else -1
+                            anchor_num = int(anchor_match.group(1)) if anchor_match else -1
+                            
+                            if part_num_int == href_num or part_num_int == anchor_num:
                                 matched_links.append(href)
                                 break
                 
@@ -445,10 +459,10 @@ def analyze_links():
     # Sort links by part number
     def get_part_num(link):
         match = re.search(r'\.part(\d+)\.rar', link, flags=re.IGNORECASE)
-        return int(match.group(1)) if match else 999
+        return int(match.group(1)) if match else 99999
 
     unique_links.sort(key=get_part_num)
-    valid_links = [l for l in unique_links if 1 <= get_part_num(l) <= 45]
+    valid_links = unique_links
 
     with manager.lock:
         manager.save_dir = directory
