@@ -39,11 +39,15 @@ class DownloadManager:
         self.status = "idle"  # idle, downloading, stopped, completed
         self.parts = []       # list of part dicts
         self.links = []       # list of fuckingfast URLs
-        self.threads = 3
+        self.threads = 5      # concurrent files (increased from 3)
+        self.segments = 4     # parallel byte-range chunks per file (IDM-style)
         self.save_dir = DEFAULT_SAVE_DIR
         self.cancel_requested = False
         self.executor = None
         self.lock = threading.Lock()
+        # Pre-resolved direct download URLs cache: fuckingfast_url -> direct_url
+        self._resolved_cache = {}
+        self._resolve_lock = threading.Lock()
 
     def get_links_file_path(self):
         return os.path.join(self.save_dir, "links.txt")
@@ -106,10 +110,66 @@ class DownloadManager:
         t = threading.Thread(target=self._run_downloader, daemon=True)
         t.start()
 
+    # ------------------------------------------------------------------ #
+    #  Option 3: Pre-resolve ALL Cloudflare links upfront in background   #
+    # ------------------------------------------------------------------ #
+    def _preresolver_worker(self, part):
+        """Resolves a fuckingfast URL to a direct CDN URL and caches it."""
+        url = part['url']
+        filename = part['filename']
+        with self._resolve_lock:
+            if url in self._resolved_cache:
+                return  # already resolved
+        try:
+            print(f"[PRE-RESOLVE] {filename}")
+            response = primp.get(url, headers=headers, timeout=20)
+            if response.status_code != 200:
+                return
+            soup = BeautifulSoup(response.text, 'html.parser')
+            download_btn = soup.find('a', class_='link-button')
+            if not download_btn:
+                return
+            go_path = download_btn.get('hx-post')
+            if not go_path:
+                return
+            go_url = urljoin(response.url, go_path)
+            post_headers = {
+                'accept': '*/*',
+                'content-type': 'application/x-www-form-urlencoded',
+                'hx-request': 'true',
+                'hx-current-url': response.url,
+                'origin': 'https://fuckingfast.co',
+                'referer': response.url,
+                'user-agent': headers['user-agent'],
+            }
+            go_response = primp.post(go_url, headers=post_headers, timeout=20)
+            if go_response.status_code != 200:
+                return
+            direct_url = go_response.headers.get('HX-Redirect') or go_response.headers.get('hx-redirect')
+            if direct_url:
+                with self._resolve_lock:
+                    self._resolved_cache[url] = direct_url
+                print(f"[PRE-RESOLVE] ✓ {filename} cached")
+        except Exception as e:
+            print(f"[PRE-RESOLVE] Failed for {filename}: {e}")
+
+    def _run_preresolver(self, pending_parts):
+        """Launch background pre-resolution for all pending parts."""
+        with ThreadPoolExecutor(max_workers=self.threads) as ex:
+            for part in pending_parts:
+                if part['status'] != 'completed':
+                    ex.submit(self._preresolver_worker, part)
+
     def _run_downloader(self):
-        print(f"Starting ThreadPoolExecutor with {self.threads} threads...")
-        self.executor = ThreadPoolExecutor(max_workers=self.threads)
+        print(f"Starting downloader: {self.threads} concurrent files, {self.segments} segments/file")
         
+        pending = [p for p in self.parts if p['status'] != 'completed']
+        
+        # Option 3: Start pre-resolving all links immediately in background
+        pre_t = threading.Thread(target=self._run_preresolver, args=(pending,), daemon=True)
+        pre_t.start()
+
+        self.executor = ThreadPoolExecutor(max_workers=self.threads)
         futures = []
         for part in self.parts:
             if part['status'] == 'completed':
@@ -137,6 +197,108 @@ class DownloadManager:
                     self.status = "idle"
                     print("Downloads finished but some parts are not completed.")
 
+    # ------------------------------------------------------------------ #
+    #  Option 1: Segmented (multi-chunk) download — IDM-style             #
+    # ------------------------------------------------------------------ #
+    def _download_segment(self, download_url, start_byte, end_byte, seg_path, seg_index, filename):
+        """Download a single byte-range segment to a temp segment file."""
+        seg_headers = dict(headers)
+        seg_headers['Range'] = f'bytes={start_byte}-{end_byte}'
+        try:
+            r = requests.get(download_url, stream=True, headers=seg_headers, timeout=30)
+            if r.status_code not in (200, 206):
+                raise Exception(f"Segment {seg_index} got HTTP {r.status_code}")
+            with open(seg_path, 'wb') as f:
+                # Option 4: 1 MB write buffer (was 64 KB)
+                for chunk in r.iter_content(chunk_size=1048576):
+                    if self.cancel_requested:
+                        return False
+                    f.write(chunk)
+            return True
+        except Exception as e:
+            print(f"[{filename}] Segment {seg_index} error: {e}")
+            return False
+
+    def _segmented_download(self, download_url, final_path, tmp_path, total_size, part, filename):
+        """Split file into self.segments chunks, download each in parallel, then merge."""
+        seg_size = total_size // self.segments
+        segments_info = []
+        for i in range(self.segments):
+            start = i * seg_size
+            end = (total_size - 1) if (i == self.segments - 1) else (start + seg_size - 1)
+            seg_path = f"{tmp_path}.seg{i}"
+            segments_info.append((i, start, end, seg_path))
+
+        print(f"[{filename}] Segmented download: {self.segments} chunks × ~{seg_size // (1024*1024)} MB")
+
+        # Track progress across all segments
+        seg_progress = [0] * self.segments
+
+        def download_and_track(seg_info):
+            i, start, end, seg_path = seg_info
+            seg_headers = dict(headers)
+            seg_headers['Range'] = f'bytes={start}-{end}'
+            try:
+                r = requests.get(download_url, stream=True, headers=seg_headers, timeout=30)
+                if r.status_code not in (200, 206):
+                    raise Exception(f"Segment {i} got HTTP {r.status_code}")
+                with open(seg_path, 'wb') as f:
+                    # Option 4: 1 MB buffer
+                    for chunk in r.iter_content(chunk_size=1048576):
+                        if self.cancel_requested:
+                            return False
+                        f.write(chunk)
+                        seg_progress[i] += len(chunk)
+                        # Update overall progress
+                        part['downloaded_bytes'] = sum(seg_progress)
+                return True
+            except Exception as e:
+                print(f"[{filename}] Segment {i} failed: {e}")
+                return False
+
+        # Speed tracking thread
+        def speed_tracker():
+            last_bytes = part['downloaded_bytes']
+            while not self.cancel_requested and part['status'] == 'downloading':
+                time.sleep(1.0)
+                now_bytes = part['downloaded_bytes']
+                part['speed_mb'] = (now_bytes - last_bytes) / (1024 * 1024)
+                last_bytes = now_bytes
+
+        speed_t = threading.Thread(target=speed_tracker, daemon=True)
+        speed_t.start()
+
+        # Download all segments in parallel
+        success = True
+        with ThreadPoolExecutor(max_workers=self.segments) as seg_executor:
+            results = list(seg_executor.map(download_and_track, segments_info))
+            if not all(results):
+                success = False
+
+        part['speed_mb'] = 0.0
+
+        if self.cancel_requested or not success:
+            # Clean up segment files
+            for _, _, _, seg_path in segments_info:
+                if os.path.exists(seg_path):
+                    os.remove(seg_path)
+            return False
+
+        # Merge all segments into the final file
+        print(f"[{filename}] Merging {self.segments} segments...")
+        with open(tmp_path, 'wb') as out:
+            for i, start, end, seg_path in segments_info:
+                with open(seg_path, 'rb') as seg_f:
+                    # Option 4: 1 MB merge buffer
+                    while True:
+                        chunk = seg_f.read(1048576)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                os.remove(seg_path)
+
+        return True
+
     def _download_worker(self, part):
         filename = part['filename']
         url = part['url']
@@ -150,58 +312,70 @@ class DownloadManager:
 
             try:
                 part['status'] = 'downloading'
-                print(f"[{filename}] Attempt {attempt}: Resolving page link...")
                 
-                response = primp.get(url, headers=headers, timeout=20)
-                if response.status_code != 200:
-                    raise Exception(f"Failed to get landing page: status {response.status_code}")
+                # Check pre-resolved cache first (Option 3)
+                with self._resolve_lock:
+                    download_url = self._resolved_cache.get(url)
                 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                download_btn = soup.find('a', class_='link-button')
-                if not download_btn:
-                    raise Exception("Download button not found in page DOM")
-                
-                # Check meta title to resolve filename if it was initialized as unknown
-                if filename == "unknown_part.rar":
-                    meta_title = soup.find('meta', attrs={'name': 'title'})
-                    if meta_title and meta_title['content']:
-                        filename = meta_title['content']
-                        part['filename'] = filename
+                if download_url:
+                    print(f"[{filename}] Using pre-resolved URL (cache hit)")
+                else:
+                    print(f"[{filename}] Attempt {attempt}: Resolving page link...")
+                    response = primp.get(url, headers=headers, timeout=20)
+                    if response.status_code != 200:
+                        raise Exception(f"Failed to get landing page: status {response.status_code}")
+                    
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    download_btn = soup.find('a', class_='link-button')
+                    if not download_btn:
+                        raise Exception("Download button not found in page DOM")
+                    
+                    # Check meta title to resolve filename if it was initialized as unknown
+                    if filename == "unknown_part.rar":
+                        meta_title = soup.find('meta', attrs={'name': 'title'})
+                        if meta_title and meta_title['content']:
+                            filename = meta_title['content']
+                            part['filename'] = filename
 
-                go_path = download_btn.get('hx-post')
-                if not go_path:
-                    raise Exception("hx-post attribute missing in download button")
-                
-                go_url = urljoin(response.url, go_path)
+                    go_path = download_btn.get('hx-post')
+                    if not go_path:
+                        raise Exception("hx-post attribute missing in download button")
+                    
+                    go_url = urljoin(response.url, go_path)
 
-                post_headers = {
-                    'accept': '*/*',
-                    'content-type': 'application/x-www-form-urlencoded',
-                    'hx-request': 'true',
-                    'hx-current-url': response.url,
-                    'origin': 'https://fuckingfast.co',
-                    'referer': response.url,
-                    'user-agent': headers['user-agent'],
-                }
-                go_response = primp.post(go_url, headers=post_headers, timeout=20)
-                if go_response.status_code != 200:
-                    raise Exception(f"Failed to POST for direct link: status {go_response.status_code}")
-                
-                download_url = go_response.headers.get('HX-Redirect') or go_response.headers.get('hx-redirect')
-                if not download_url:
-                    raise Exception("HX-Redirect header missing from POST response")
+                    post_headers = {
+                        'accept': '*/*',
+                        'content-type': 'application/x-www-form-urlencoded',
+                        'hx-request': 'true',
+                        'hx-current-url': response.url,
+                        'origin': 'https://fuckingfast.co',
+                        'referer': response.url,
+                        'user-agent': headers['user-agent'],
+                    }
+                    go_response = primp.post(go_url, headers=post_headers, timeout=20)
+                    if go_response.status_code != 200:
+                        raise Exception(f"Failed to POST for direct link: status {go_response.status_code}")
+                    
+                    download_url = go_response.headers.get('HX-Redirect') or go_response.headers.get('hx-redirect')
+                    if not download_url:
+                        raise Exception("HX-Redirect header missing from POST response")
+                    
+                    # Cache for future use
+                    with self._resolve_lock:
+                        self._resolved_cache[url] = download_url
 
                 final_path = os.path.join(self.save_dir, filename)
                 tmp_path = final_path + ".tmp"
 
-                # Check headers to verify content length
+                # Get file size from server
                 try:
-                    head_res = requests.get(download_url, stream=True, headers=headers, timeout=15)
+                    head_res = requests.head(download_url, headers=headers, timeout=15, allow_redirects=True)
                     total_size = int(head_res.headers.get('content-length', 0))
-                    head_res.close()
+                    accepts_ranges = head_res.headers.get('accept-ranges', '').lower() == 'bytes'
                 except Exception as he:
-                    print(f"[{filename}] Warning: Failed to fetch head content-length: {he}")
+                    print(f"[{filename}] Warning: HEAD request failed: {he}")
                     total_size = 0
+                    accepts_ranges = False
 
                 if total_size > 0:
                     part['total_bytes'] = total_size
@@ -219,58 +393,79 @@ class DownloadManager:
                         part['speed_mb'] = 0.0
                         return
 
-                # Range Resume logic
-                current_size = 0
-                if os.path.exists(tmp_path):
-                    current_size = os.path.getsize(tmp_path)
-                    if total_size > 0 and current_size >= total_size:
+                os.makedirs(self.save_dir, exist_ok=True)
+
+                # -------------------------------------------------------- #
+                # Option 1: Use segmented download if server supports ranges #
+                # and we know the total size (minimum 10 MB to be worthwhile)#
+                # -------------------------------------------------------- #
+                if accepts_ranges and total_size >= 10 * 1024 * 1024:
+                    # Clean any leftover .tmp before segmented download
+                    if os.path.exists(tmp_path):
                         os.remove(tmp_path)
-                        current_size = 0
+                    part['downloaded_bytes'] = 0
+                    
+                    success = self._segmented_download(
+                        download_url, final_path, tmp_path, total_size, part, filename
+                    )
+                    
+                    if not success:
+                        if self.cancel_requested:
+                            part['status'] = 'pending'
+                            part['speed_mb'] = 0.0
+                            return
+                        raise Exception("Segmented download failed, will retry")
+                else:
+                    # Fallback: single-stream download with resume support
+                    current_size = 0
+                    if os.path.exists(tmp_path):
+                        current_size = os.path.getsize(tmp_path)
+                        if total_size > 0 and current_size >= total_size:
+                            os.remove(tmp_path)
+                            current_size = 0
 
-                download_headers = dict(headers)
-                open_mode = 'wb'
-                downloaded = 0
-
-                if current_size > 0:
-                    download_headers['Range'] = f'bytes={current_size}-'
-                    open_mode = 'ab'
-                    downloaded = current_size
-                    print(f"[{filename}] Resuming download from position {current_size} bytes...")
-
-                part_res = requests.get(download_url, stream=True, headers=download_headers, timeout=30)
-                
-                if current_size > 0 and part_res.status_code != 206:
-                    print(f"[{filename}] Range request returned status {part_res.status_code}. Starting from scratch.")
+                    download_headers = dict(headers)
                     open_mode = 'wb'
                     downloaded = 0
 
-                os.makedirs(self.save_dir, exist_ok=True)
+                    if current_size > 0:
+                        download_headers['Range'] = f'bytes={current_size}-'
+                        open_mode = 'ab'
+                        downloaded = current_size
+                        print(f"[{filename}] Resuming single-stream from {current_size} bytes...")
 
-                last_time = time.time()
-                last_bytes = downloaded
+                    part_res = requests.get(download_url, stream=True, headers=download_headers, timeout=30)
+                    
+                    if current_size > 0 and part_res.status_code != 206:
+                        open_mode = 'wb'
+                        downloaded = 0
 
-                with open(tmp_path, open_mode) as f:
-                    for chunk in part_res.iter_content(chunk_size=65536):
-                        if self.cancel_requested:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        part['downloaded_bytes'] = downloaded
+                    last_time = time.time()
+                    last_bytes = downloaded
 
-                        now = time.time()
-                        if now - last_time >= 1.0:
-                            elapsed = now - last_time
-                            speed = (downloaded - last_bytes) / elapsed
-                            part['speed_mb'] = speed / (1024 * 1024)
-                            last_bytes = downloaded
-                            last_time = now
+                    with open(tmp_path, open_mode) as f:
+                        # Option 4: 1 MB buffer (was 64 KB)
+                        for chunk in part_res.iter_content(chunk_size=1048576):
+                            if self.cancel_requested:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            part['downloaded_bytes'] = downloaded
 
-                part_res.close()
+                            now = time.time()
+                            if now - last_time >= 1.0:
+                                elapsed = now - last_time
+                                speed = (downloaded - last_bytes) / elapsed
+                                part['speed_mb'] = speed / (1024 * 1024)
+                                last_bytes = downloaded
+                                last_time = now
 
-                if self.cancel_requested:
-                    part['status'] = 'pending'
-                    part['speed_mb'] = 0.0
-                    return
+                    part_res.close()
+
+                    if self.cancel_requested:
+                        part['status'] = 'pending'
+                        part['speed_mb'] = 0.0
+                        return
 
                 if os.path.exists(tmp_path):
                     os.rename(tmp_path, final_path)
@@ -282,6 +477,9 @@ class DownloadManager:
             except Exception as e:
                 print(f"[{filename}] Attempt {attempt} failed: {e}")
                 part['speed_mb'] = 0.0
+                # Invalidate cached URL on failure so next attempt re-resolves
+                with self._resolve_lock:
+                    self._resolved_cache.pop(url, None)
                 if attempt == max_retries:
                     part['status'] = 'failed'
                 else:
@@ -292,7 +490,10 @@ class DownloadManager:
             self.cancel_requested = True
         print("Cancel requested for all active threads...")
 
+
 manager = DownloadManager()
+
+
 
 # Helper functions for scraping
 def get_slug_from_filename(filename):
