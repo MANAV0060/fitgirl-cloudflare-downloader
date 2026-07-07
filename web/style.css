@@ -408,3 +408,21 @@ textarea:focus {
     transform: none;
     box-shadow: none;
 }
+
+/* Indeterminate animated progress bar (shown while connecting / size unknown) */
+@keyframes indeterminate-slide {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.progress-bar-fill.indeterminate {
+    background: linear-gradient(90deg,
+        #8b5cf6 0%,
+        #00e676 40%,
+        #8b5cf6 60%,
+        #00e676 100%
+    );
+    background-size: 200% 100%;
+    animation: indeterminate-slide 1.4s linear infinite;
+    opacity: 0.75;
+}

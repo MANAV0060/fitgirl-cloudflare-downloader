@@ -568,30 +568,49 @@ def get_status():
                 overall_speed += p['speed_mb']
             if p['status'] == 'completed':
                 completed_count += 1
-            
-            # Only count bytes toward progress when we know the total size
-            # This prevents .tmp partial files inflating % above 100%
+
+            # Accumulate bytes for all files with a known size
             if p['total_bytes'] > 0:
                 overall_downloaded += p['downloaded_bytes']
                 overall_total += p['total_bytes']
             elif p['status'] == 'completed':
-                # Completed files with known disk size
                 overall_downloaded += p['downloaded_bytes']
                 overall_total += p['downloaded_bytes']
-        
+
         current_save_dir = manager.save_dir
 
     total_count = len(parts_data)
-    progress_percent = 0
-    if overall_total > 0:
-        # Cap at 100% to prevent display overflow
-        progress_percent = min(100.0, round((overall_downloaded / overall_total) * 100, 1))
 
+    # ------------------------------------------------------------------ #
+    # Progress %: use file-count ratio — always correct regardless of     #
+    # whether individual file sizes are known yet                         #
+    # ------------------------------------------------------------------ #
+    progress_percent = 0.0
+    if total_count > 0:
+        progress_percent = min(100.0, round((completed_count / total_count) * 100, 1))
+
+    # ------------------------------------------------------------------ #
+    # ETA: estimate remaining bytes for incomplete files                  #
+    # Use known total_bytes where available; fall back to average size    #
+    # ------------------------------------------------------------------ #
     eta_seconds = None
-    if overall_speed > 0:
-        bytes_left = overall_total - overall_downloaded
-        if bytes_left > 0:
-            eta_seconds = bytes_left / (overall_speed * 1024 * 1024)
+    if overall_speed > 0 and total_count > 0:
+        # Average file size from files we know about
+        known_count = sum(1 for p in parts_data if p['total_bytes'] > 0)
+        avg_size = (overall_total / known_count) if known_count > 0 else 500 * 1024 * 1024
+
+        remaining_bytes = 0
+        for p in parts_data:
+            if p['status'] == 'completed':
+                continue
+            if p['total_bytes'] > 0:
+                remaining_bytes += max(0, p['total_bytes'] - p['downloaded_bytes'])
+            else:
+                # Unknown size: use average estimate
+                remaining_bytes += avg_size
+
+        if remaining_bytes > 0:
+            eta_seconds = remaining_bytes / (overall_speed * 1024 * 1024)
 
     return jsonify({
         'status': manager.status,
@@ -606,6 +625,7 @@ def get_status():
         'saved_links': manager.load_saved_links(),
         'save_dir': current_save_dir
     })
+
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_links():

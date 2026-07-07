@@ -273,15 +273,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     // Update bar fill
-                    const pct = part.total_bytes > 0 ? (part.downloaded_bytes / part.total_bytes * 100).toFixed(1) : 0;
                     const fill = card.querySelector('.progress-bar-fill');
-                    fill.style.width = `${pct}%`;
-
-                    // Update labels
-                    const sizeLabel = part.total_bytes > 0 ? 
-                        `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}` : 
-                        'Pending check...';
-                    card.querySelector('.part-progress-text').textContent = `${pct}% (${sizeLabel})`;
+                    if (part.status === 'downloading' && part.total_bytes === 0) {
+                        // Segmented download: size not yet known — show indeterminate pulse
+                        fill.style.width = '100%';
+                        fill.classList.add('indeterminate');
+                        card.querySelector('.part-progress-text').textContent = 'Connecting...';
+                    } else {
+                        fill.classList.remove('indeterminate');
+                        const pct = part.total_bytes > 0 ? (part.downloaded_bytes / part.total_bytes * 100).toFixed(1) : (part.status === 'completed' ? 100 : 0);
+                        fill.style.width = `${pct}%`;
+                        const sizeLabel = part.total_bytes > 0
+                            ? `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}`
+                            : (part.status === 'completed' ? formatBytes(part.downloaded_bytes) : 'Pending...');
+                        card.querySelector('.part-progress-text').textContent = `${pct}% (${sizeLabel})`;
+                    }
                     card.querySelector('.part-speed').textContent = part.speed_mb > 0 ? part.speed_mb.toFixed(1) + ' MB/s' : '';
                 }
             });
