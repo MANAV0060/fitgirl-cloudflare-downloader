@@ -277,11 +277,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Update bar fill
                     const fill = card.querySelector('.progress-bar-fill');
+                    const container = card.querySelector('.progress-bar-container');
 
                     if (part.status === 'downloading' && part.total_bytes === 0) {
+                        // Size not yet known — show sweeping loading bar via CSS ::after
+                        container.classList.add('connecting');
                         fill.style.width = '0%';
                         card.querySelector('.part-progress-text').textContent = 'Connecting...';
                     } else {
+                        container.classList.remove('connecting');
                         const pct = part.total_bytes > 0
                             ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1)
                             : (part.status === 'completed' ? 100 : 0);
