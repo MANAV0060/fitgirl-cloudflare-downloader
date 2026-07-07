@@ -376,34 +376,30 @@ textarea:focus {
     z-index: 1;
 }
 
-/* Classic sweeping indeterminate bar for Connecting... state */
-@keyframes sweep {
-    0%   { left: -40%; width: 35%; }
-    60%  { left: 80%;  width: 35%; }
-    100% { left: 110%; width: 35%; }
-}
-
-.progress-bar-container.connecting::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    height: 100%;
-    background: var(--progress-gradient);
-    border-radius: 3px;
-    opacity: 0.85;
-    animation: sweep 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
 .part-details-row {
     display: flex;
     justify-content: space-between;
+    gap: 0.75rem;
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+.part-progress-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .part-speed {
     color: var(--accent-emerald);
     font-weight: 500;
+    flex-shrink: 0;
+}
+
+.part-remaining-text {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-top: 0.35rem;
 }
 
 .btn-retry-card {
@@ -429,4 +425,3 @@ textarea:focus {
     transform: none;
     box-shadow: none;
 }
-

@@ -32,6 +32,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
+    function formatMB(bytes) {
+        return (Math.max(0, bytes || 0) / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function getPartProgress(part) {
+        const downloaded = Math.max(0, part.downloaded_bytes || 0);
+        const total = Math.max(0, part.total_bytes || 0);
+        const hasTotal = total > 0;
+        const pct = hasTotal
+            ? Math.min(100, (downloaded / total * 100))
+            : (part.status === 'completed' ? 100 : 0);
+
+        return {
+            pct,
+            pctLabel: `${pct.toFixed(1)}%`,
+            downloadedLabel: formatMB(downloaded),
+            totalLabel: hasTotal ? formatMB(total) : 'Unknown',
+            remainingLabel: hasTotal ? formatMB(total - downloaded) : 'Calculating...'
+        };
+    }
+
     // Helper: format seconds to HH:MM:SS
     function formatSeconds(seconds) {
         if (seconds === null || isNaN(seconds) || seconds === Infinity || seconds < 0) return '--:--:--';
@@ -121,13 +142,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderPartCards(parts) {
         partsGrid.innerHTML = '';
         parts.forEach(part => {
-            const pct = part.total_bytes > 0 ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1) : (part.status === 'completed' ? 100 : 0);
-            const sizeLabel = part.total_bytes > 0
-                ? `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}`
-                : (part.status === 'completed' ? formatBytes(part.downloaded_bytes) : 'Pending...');
+            const progress = getPartProgress(part);
             const progressText = part.status === 'downloading' && part.total_bytes === 0
-                ? 'Connecting...'
-                : `${pct}% (${sizeLabel})`;
+                ? `Connecting... Downloaded ${progress.downloadedLabel}`
+                : `${progress.pctLabel} | Downloaded ${progress.downloadedLabel} / ${progress.totalLabel}`;
+            const remainingText = `Remaining ${progress.remainingLabel}`;
 
             const card = document.createElement('div');
             card.className = `part-card ${part.status === 'downloading' ? 'active' : ''} ${part.status === 'completed' ? 'completed' : ''}`;
@@ -142,12 +161,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 <div class="progress-bar-container progress-bar-track">
-                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                    <div class="progress-bar-fill" style="width: ${progress.pct}%"></div>
                 </div>
                 <div class="part-details-row">
                     <span class="part-progress-text">${progressText}</span>
                     <span class="part-speed">${part.speed_mb > 0 ? part.speed_mb.toFixed(1) + ' MB/s' : ''}</span>
                 </div>
+                <div class="part-remaining-text">${remainingText}</div>
             `;
             partsGrid.appendChild(card);
         });
@@ -277,23 +297,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Update bar fill
                     const fill = card.querySelector('.progress-bar-fill');
-                    const container = card.querySelector('.progress-bar-container');
-
                     if (part.status === 'downloading' && part.total_bytes === 0) {
-                        // Size not yet known — show sweeping loading bar via CSS ::after
-                        container.classList.add('connecting');
                         fill.style.width = '0%';
-                        card.querySelector('.part-progress-text').textContent = 'Connecting...';
+                        const progress = getPartProgress(part);
+                        card.querySelector('.part-progress-text').textContent = `Connecting... Downloaded ${progress.downloadedLabel}`;
+                        card.querySelector('.part-remaining-text').textContent = `Remaining ${progress.remainingLabel}`;
                     } else {
-                        container.classList.remove('connecting');
-                        const pct = part.total_bytes > 0
-                            ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1)
-                            : (part.status === 'completed' ? 100 : 0);
-                        fill.style.width = `${pct}%`;
-                        const sizeLabel = part.total_bytes > 0
-                            ? `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}`
-                            : (part.status === 'completed' ? formatBytes(part.downloaded_bytes) : 'Pending...');
-                        card.querySelector('.part-progress-text').textContent = `${pct}% (${sizeLabel})`;
+                        const progress = getPartProgress(part);
+                        fill.style.width = `${progress.pct}%`;
+                        card.querySelector('.part-progress-text').textContent =
+                            `${progress.pctLabel} | Downloaded ${progress.downloadedLabel} / ${progress.totalLabel}`;
+                        card.querySelector('.part-remaining-text').textContent = `Remaining ${progress.remainingLabel}`;
                     }
                     card.querySelector('.part-speed').textContent = part.speed_mb > 0 ? part.speed_mb.toFixed(1) + ' MB/s' : '';
                 }

@@ -49,6 +49,23 @@ class DownloadManager:
         self._resolved_cache = {}
         self._resolve_lock = threading.Lock()
 
+    @staticmethod
+    def _infer_total_size_from_response(response, current_size=0):
+        """Infer full file size from response headers when HEAD did not provide it."""
+        content_range = response.headers.get('content-range', '')
+        range_match = re.search(r'/(\d+)\s*$', content_range)
+        if range_match:
+            return int(range_match.group(1))
+
+        content_length = response.headers.get('content-length')
+        if content_length and content_length.isdigit():
+            length = int(content_length)
+            if response.status_code == 206:
+                return current_size + length
+            return length
+
+        return 0
+
     def get_links_file_path(self):
         return os.path.join(self.save_dir, "links.txt")
 
@@ -439,6 +456,12 @@ class DownloadManager:
                     if current_size > 0 and part_res.status_code != 206:
                         open_mode = 'wb'
                         downloaded = 0
+
+                    if total_size <= 0:
+                        inferred_total = self._infer_total_size_from_response(part_res, downloaded)
+                        if inferred_total > 0:
+                            total_size = inferred_total
+                            part['total_bytes'] = total_size
 
                     last_time = time.time()
                     last_bytes = downloaded
