@@ -275,19 +275,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         card.classList.remove('active', 'completed');
                     }
 
-                    // Update bar fill — width = actual % downloaded
+                    // Update bar fill
                     const fill = card.querySelector('.progress-bar-fill');
-                    const track = card.querySelector('.progress-bar-track');
 
                     if (part.status === 'downloading' && part.total_bytes === 0) {
-                        // Size not yet known (connecting / HEAD phase) — show empty bar with pulsing track
                         fill.style.width = '0%';
-                        fill.classList.remove('indeterminate');
-                        if (track) track.classList.add('track-pulse');
                         card.querySelector('.part-progress-text').textContent = 'Connecting...';
                     } else {
-                        if (track) track.classList.remove('track-pulse');
-                        fill.classList.remove('indeterminate');
                         const pct = part.total_bytes > 0
                             ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1)
                             : (part.status === 'completed' ? 100 : 0);
