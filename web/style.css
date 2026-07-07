@@ -409,20 +409,12 @@ textarea:focus {
     box-shadow: none;
 }
 
-/* Indeterminate animated progress bar (shown while connecting / size unknown) */
-@keyframes indeterminate-slide {
-    0%   { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+/* Pulsing track glow while connecting (bar stays at 0% — only grows with real data) */
+@keyframes track-glow {
+    0%, 100% { background-color: rgba(139, 92, 246, 0.12); }
+    50%       { background-color: rgba(139, 92, 246, 0.32); }
 }
 
-.progress-bar-fill.indeterminate {
-    background: linear-gradient(90deg,
-        #8b5cf6 0%,
-        #00e676 40%,
-        #8b5cf6 60%,
-        #00e676 100%
-    );
-    background-size: 200% 100%;
-    animation: indeterminate-slide 1.4s linear infinite;
-    opacity: 0.75;
+.progress-bar-track.track-pulse {
+    animation: track-glow 1.2s ease-in-out infinite;
 }

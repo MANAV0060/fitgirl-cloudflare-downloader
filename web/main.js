@@ -121,10 +121,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderPartCards(parts) {
         partsGrid.innerHTML = '';
         parts.forEach(part => {
-            const pct = part.total_bytes > 0 ? (part.downloaded_bytes / part.total_bytes * 100).toFixed(1) : 0;
-            const sizeLabel = part.total_bytes > 0 ? 
-                `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}` : 
-                'Pending check...';
+            const pct = part.total_bytes > 0 ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1) : (part.status === 'completed' ? 100 : 0);
+            const sizeLabel = part.total_bytes > 0
+                ? `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}`
+                : (part.status === 'completed' ? formatBytes(part.downloaded_bytes) : 'Pending...');
+            const progressText = part.status === 'downloading' && part.total_bytes === 0
+                ? 'Connecting...'
+                : `${pct}% (${sizeLabel})`;
 
             const card = document.createElement('div');
             card.className = `part-card ${part.status === 'downloading' ? 'active' : ''} ${part.status === 'completed' ? 'completed' : ''}`;
@@ -138,11 +141,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="status-badge status-${part.status}">${part.status}</span>
                     </div>
                 </div>
-                <div class="progress-bar-container">
+                <div class="progress-bar-container progress-bar-track">
                     <div class="progress-bar-fill" style="width: ${pct}%"></div>
                 </div>
                 <div class="part-details-row">
-                    <span class="part-progress-text">${pct}% (${sizeLabel})</span>
+                    <span class="part-progress-text">${progressText}</span>
                     <span class="part-speed">${part.speed_mb > 0 ? part.speed_mb.toFixed(1) + ' MB/s' : ''}</span>
                 </div>
             `;
@@ -272,16 +275,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         card.classList.remove('active', 'completed');
                     }
 
-                    // Update bar fill
+                    // Update bar fill — width = actual % downloaded
                     const fill = card.querySelector('.progress-bar-fill');
+                    const track = card.querySelector('.progress-bar-track');
+
                     if (part.status === 'downloading' && part.total_bytes === 0) {
-                        // Segmented download: size not yet known — show indeterminate pulse
-                        fill.style.width = '100%';
-                        fill.classList.add('indeterminate');
+                        // Size not yet known (connecting / HEAD phase) — show empty bar with pulsing track
+                        fill.style.width = '0%';
+                        fill.classList.remove('indeterminate');
+                        if (track) track.classList.add('track-pulse');
                         card.querySelector('.part-progress-text').textContent = 'Connecting...';
                     } else {
+                        if (track) track.classList.remove('track-pulse');
                         fill.classList.remove('indeterminate');
-                        const pct = part.total_bytes > 0 ? (part.downloaded_bytes / part.total_bytes * 100).toFixed(1) : (part.status === 'completed' ? 100 : 0);
+                        const pct = part.total_bytes > 0
+                            ? Math.min(100, (part.downloaded_bytes / part.total_bytes * 100)).toFixed(1)
+                            : (part.status === 'completed' ? 100 : 0);
                         fill.style.width = `${pct}%`;
                         const sizeLabel = part.total_bytes > 0
                             ? `${formatBytes(part.downloaded_bytes)} / ${formatBytes(part.total_bytes)}`
