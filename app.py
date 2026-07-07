@@ -368,15 +368,23 @@ def get_status():
             if p['status'] == 'completed':
                 completed_count += 1
             
-            overall_downloaded += p['downloaded_bytes']
-            overall_total += p['total_bytes']
+            # Only count bytes toward progress when we know the total size
+            # This prevents .tmp partial files inflating % above 100%
+            if p['total_bytes'] > 0:
+                overall_downloaded += p['downloaded_bytes']
+                overall_total += p['total_bytes']
+            elif p['status'] == 'completed':
+                # Completed files with known disk size
+                overall_downloaded += p['downloaded_bytes']
+                overall_total += p['downloaded_bytes']
         
         current_save_dir = manager.save_dir
 
     total_count = len(parts_data)
     progress_percent = 0
     if overall_total > 0:
-        progress_percent = round((overall_downloaded / overall_total) * 100, 1)
+        # Cap at 100% to prevent display overflow
+        progress_percent = min(100.0, round((overall_downloaded / overall_total) * 100, 1))
 
     eta_seconds = None
     if overall_speed > 0:
