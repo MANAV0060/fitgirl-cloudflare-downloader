@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const linksInput = document.getElementById('links-input');
     const threadsInput = document.getElementById('threads-input');
     const directoryInput = document.getElementById('directory-input');
+    const btnBrowse = document.getElementById('btn-browse');
     const btnAnalyze = document.getElementById('btn-analyze');
     const btnStart = document.getElementById('btn-start');
     const btnStop = document.getElementById('btn-stop');
@@ -89,8 +90,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 headerStatusText.textContent = `Status: ${data.status.toUpperCase()}`;
             }
 
-            // If server has custom save directory, populate it
-            if (data.save_dir) {
+            // If server has custom save directory, populate it if input is empty or not currently focused
+            if (data.save_dir && (!directoryInput.value || document.activeElement !== directoryInput)) {
                 directoryInput.value = data.save_dir;
             }
 
@@ -321,6 +322,30 @@ document.addEventListener('DOMContentLoaded', () => {
     btnAnalyze.addEventListener('click', analyzeLinks);
     btnStart.addEventListener('click', startDownload);
     btnStop.addEventListener('click', stopDownload);
+
+    if (btnBrowse) {
+        btnBrowse.addEventListener('click', async () => {
+            const originalHTML = btnBrowse.innerHTML;
+            btnBrowse.disabled = true;
+            btnBrowse.innerHTML = '⏳ Browsing...';
+            try {
+                const res = await fetch('/api/browse_dir', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ current: directoryInput.value.trim() })
+                });
+                const data = await res.json();
+                if (data.success && data.directory) {
+                    directoryInput.value = data.directory;
+                }
+            } catch (err) {
+                console.error('Error opening folder picker:', err);
+            } finally {
+                btnBrowse.disabled = false;
+                btnBrowse.innerHTML = originalHTML;
+            }
+        });
+    }
 
     partsGrid.addEventListener('click', async (e) => {
         if (e.target.classList.contains('btn-retry-card')) {

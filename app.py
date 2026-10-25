@@ -3,6 +3,7 @@ import re
 import time
 import sys
 import threading
+import subprocess
 import webbrowser
 from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
@@ -663,6 +664,36 @@ def retry_part():
     t.start()
 
     return jsonify({'success': True})
+
+@app.route('/api/browse_dir', methods=['POST'])
+def browse_dir():
+    data = request.json or {}
+    current = data.get('current', '').strip()
+    if not current or not os.path.isdir(current):
+        current = manager.save_dir if os.path.isdir(manager.save_dir) else ""
+
+    try:
+        script = (
+            "import sys, os, tkinter as tk\n"
+            "from tkinter import filedialog\n"
+            "root = tk.Tk()\n"
+            "root.withdraw()\n"
+            "root.wm_attributes('-topmost', 1)\n"
+            "init_dir = sys.argv[1] if len(sys.argv) > 1 and os.path.isdir(sys.argv[1]) else None\n"
+            "chosen = filedialog.askdirectory(title='Select Save Directory', initialdir=init_dir)\n"
+            "root.destroy()\n"
+            "if chosen:\n"
+            "    sys.stdout.write(os.path.normpath(chosen))\n"
+        )
+        res = subprocess.run([sys.executable, "-c", script, current], capture_output=True, text=True, timeout=120)
+        selected = res.stdout.strip()
+        if selected:
+            norm = os.path.normpath(selected)
+            manager.save_dir = norm
+            return jsonify({'success': True, 'directory': norm})
+        return jsonify({'success': False, 'cancelled': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 def open_browser():
     time.sleep(1.5)

@@ -425,3 +425,43 @@ textarea:focus {
     transform: none;
     box-shadow: none;
 }
+
+.directory-input-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.directory-input-group .input-field {
+    flex: 1;
+}
+
+.btn-browse {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--panel-border);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.btn-browse:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.25);
+    border-color: var(--accent-violet);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+}
+
+.btn-browse:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
